@@ -45,10 +45,10 @@ logger = logging.getLogger(__name__)
 ######################################################################################
 
 def resize_images():
-    '''
-    Resizes the images in /top_dir/train/ and saves them to 
-    /top_dir/resized/train \n - Folder structure is kept the same
-    '''
+    """
+    Resizes the images in /train and saves them to /resized/train \n
+    Folder structure is kept the same
+    """
     logger.info("Resizing images")
     path = f"{top_dir}/train/"
     resize_path = f"{top_dir}/resized/train/"
@@ -72,17 +72,17 @@ def resize_images():
                 logger.warning(f">>> {file} resize_images exception", exc_info=True)
 
 
-def preprocess(count_train, count_test, 
-               max_folders=100, max_files=10000, resize=False):
+def preprocess(count_train, count_test, max_folders=100, max_files=10000, resize=False):
     '''
     Returns data for images (np.array), flowers (np.array), and flower 
     categories (list) within /resized/train
-    \n - count_train is the number of training samples
-    \n - count_test is the number of test samples
-    \n - max_folders limits the number of flower categories to use 
-    \n - max_files limits the number of images to read from a given folder
-    \n - if resize=True, calls resize_images(top_dir) to build the 
-    /resized/train/ directory from /train/
+    Parameters
+    ----------
+    count_train : number of training samples\n
+    count_test : number of test samples\n
+    max_folders : maximum number of folders (representing flower categories) to use\n
+    max_files : maximum number of images to read from a given folder\n
+    resize :  if True, call resize_images() to reduce image size before preprocessing
     '''
     logger.info("Preprocessing")
     if resize:
@@ -90,12 +90,8 @@ def preprocess(count_train, count_test,
     max_files = min((count_train + count_test), max_files)
     path = f"{top_dir}/resized/train/"
     sep = '/'
-    x_train_image = []
-    x_test_image = []
-    y_labs_flower = []
-    y_train_flower = []
-    y_test_flower = []
-    x_image = []
+    x_train_image, x_test_image, y_train_flower, y_test_flower, \
+        x_image, y_labs_flower = [], [], [], [], [], []
     dirs = os.listdir(path)
     folder_count = 0
     for folder in dirs[:max_folders]:
@@ -140,22 +136,23 @@ def get_model_results(model, x_test, y_test, pred, x, grid=False):
     if grid:
         results['Model'] = model.best_estimator_
         results['Params'] = model.best_params_
-        results['Score'] = model.best_score_
+        results['Train Accuracy'] = model.best_score_
     else:
         results['Model'] = model
         results['Params'] = model.get_params()
-        results['Score'] = model.score(x_test, y_test)
+        results['Train Accuracy'] = 'N/A'
     return results
 
 
 def get_accuracy(df):
+    '''Calculates accuracy of out-of-sample model predictions on test data'''
     logger.info("Calculating accuracies")
     for col in [col for col in list(df) if col.endswith('Prediction')]:
         model = col.split('_')[0]
         correct_col = f"{model}_Correct"
         df[correct_col] = df['FlowerCategory'] == df[col]
         vals = df[correct_col].value_counts()
-        model_dict[model]['Accuracy'] = vals[True] / sum(vals)
+        model_dict[model]['Test Accuracy'] = vals[True] / sum(vals)
     return df
 
 
@@ -166,11 +163,11 @@ def print_results(y_test, pred, results):
     print(f"Confusion Matrix\n{confusion_matrix(y_test, pred)}")
     
 
-def visualize_dt(dt, x):
+def visualize_dt(dt, x, y_labels):
     '''create visualization of the decision tree classifier'''
     dot_data = tree.export_graphviz(dt, out_file=None,
                                     feature_names=x.columns,
-                                    class_names='no_show',
+                                    class_names=list(set(y_labels)),
                                     filled=True,
                                     rounded=True,
                                     max_depth=3,
@@ -179,7 +176,7 @@ def visualize_dt(dt, x):
     graph = graphviz.Source(dot_data)
     # save graph to dt.pdf
     graph.render("dt")
-    
+
 
 def get_grid_search(model, grid):
     '''return GridSearchCV object'''
@@ -200,8 +197,10 @@ def get_grid_search(model, grid):
 # Decision Tree
 ######################################################################################
 
-def run_dt(x_train, x_test, y_train, y_test, x, viz=False):
-    '''Decision Tree Classifier'''
+def run_dt(x_train, x_test, y_train, y_test, x, y_labels=[]):
+    '''Decision Tree Classifier
+    - include y_labels in function call from main to generate visualization
+    '''
     logger.info("Running DecisionTree")
     grid = {
         'max_depth': [20, 40, 60], 
@@ -213,6 +212,8 @@ def run_dt(x_train, x_test, y_train, y_test, x, viz=False):
     dt.fit(x_train, y_train)
     dt_pred = dt.best_estimator_.predict(x_test)
     model_dict['dt'] = get_model_results(dt, x_test, y_test, dt_pred, x, grid=True)
+    if y_labels:
+        visualize_dt(dt, x, y_labels)
     return dt_pred
 
 
@@ -242,7 +243,7 @@ def run_rf(x_train, x_test, y_train, y_test, x):
 ######################################################################################
 
 def run_gnb(x_train, x_test, y_train, y_test, x):
-    '''Gaussian Naive Bayes model'''
+    '''Gaussian Naive Bayes'''
     logger.info("Running GaussianNB")
     gnb = GaussianNB()
     gnb.fit(x_train, y_train)
@@ -252,7 +253,7 @@ def run_gnb(x_train, x_test, y_train, y_test, x):
 
 
 def run_compnb(x_train, x_test, y_train, y_test, x):
-    '''Complement Naive Bayes model'''
+    '''Complement Naive Bayes'''
     logger.info("Running ComplementNB")
     compnb = ComplementNB()
     compnb.fit(x_train, y_train)
@@ -261,10 +262,11 @@ def run_compnb(x_train, x_test, y_train, y_test, x):
     return compnb_pred
 
 ######################################################################################
-# kNN
+# K-Nearest Neighbors
 ######################################################################################
 
 def run_knn(x_train, x_test, y_train, y_test, x):
+    '''K-Nearest Neighbors Classifier'''
     logger.info("Running KNeighbors")
     grid = {
         'algorithm': ['auto'],
@@ -281,10 +283,11 @@ def run_knn(x_train, x_test, y_train, y_test, x):
     return knn_pred
 
 ######################################################################################
-# SVM
+# Support Vector Machine
 ######################################################################################
 
 def run_svm(x_train, x_test, y_train, y_test, x):
+    '''Support Vector Classification'''
     logger.info("Running SVC")
     grid = {
         'kernel': ['rbf', 'linear', 'sigmoid'], 
@@ -302,9 +305,9 @@ def run_svm(x_train, x_test, y_train, y_test, x):
 
 def main():
     logger.info("START")
-    x_train, x_test, y_train, y_test, x, y_labs = \
+    x_train, x_test, y_train, y_test, x, y_labels = \
             preprocess(count_train=100, count_test=20, max_folders=8)
-    df_results = pd.DataFrame({'CategoryName': y_labs, 'FlowerCategory': y_test})
+    df_results = pd.DataFrame({'CategoryName': y_labels, 'FlowerCategory': y_test})
     
     # Model Selection: to exclude a model from the run, comment it out below
     df_results['dt_Prediction'] = run_dt(x_train, x_test, y_train, y_test, x)
