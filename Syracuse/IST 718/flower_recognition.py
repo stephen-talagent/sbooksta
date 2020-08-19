@@ -129,7 +129,6 @@ def preprocess(count_train, count_test, max_folders=100, max_files=10000, resize
 # UTILITIES
 ######################################################################################
 
-'''TODO: Add train-set accuracy'''
 def get_model_results(model, x_test, y_test, pred, x, grid=False):
     '''return dictionary of model results'''
     results = {}
